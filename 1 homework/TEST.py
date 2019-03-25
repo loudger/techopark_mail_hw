@@ -20,22 +20,16 @@ class User(Model):
     class Meta:
         table_name = 'Users'
 
-user = User(id=2, name='name') 
-User.create_table()
+# User.create_table()
 # User.drop_table()
+# User.objects.create(id = 1, name = 'Artur')
+# User.objects.create(id=2, name='Max')
+# User.objects.remove(id = 2, name = 'Max')
+print(User.objects)
 
 
 
-# print(User.id.return_mysql_format())
-# print(User.name.return_mysql_format())
-# print(user.id)
-# print(User.objects.create)
-# user.name = '2'
-# print(user.name)
-# print(User.create_table())
 
-
-# User.objects.create(id=1, name='name')
 
 
 # cursor.execute('CREATE DATABASE datacamp')

@@ -27,6 +27,7 @@ class Field:
         if value is None and not self.required:
             return None
         if not isinstance(value, (self.f_type, type(None))):
+            print(value, type(value), self.f_type)
             raise ValueError('input ValueError')
         return self.f_type(value)
 
@@ -105,36 +106,89 @@ class Settings:
         cls.db = mysql.connect(
             host = kwargs['host'],
             user = kwargs['user'],
-            passwd = kwargs['passwd'], 
+            passwd = kwargs['passwd'],
             database = kwargs['database']
         )
         cls.cursor = cls.db.cursor()
 
 class Manage:
-    def __init__(self):
-        self.model_cls = None
+    def __init__(self, fields, table_name):
+        self.fields = fields     
+        self.table_name = table_name    
 
-    def __get__(self, instance, owner):
-        if self.model_cls is None:
-            self.model_cls = owner
-        return self
+    # def __get__(self, instance, owner):
+    #     print('!!!')
+    #     return self.fields
 
-    def create(self):
-        print(self.model_cls)
+    def create(self, **kwargs):
+        fields_input = self.validate_input(kwargs)
+        cursor = Settings.cursor
+        cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
+            table_name = self.table_name, 
+            fields_key = ', '.join(fields_input.keys()),
+            fields_value = ', '.join(fields_input.values())
+            ))
+        Settings.db.commit()
+
+    def remove(self, **kwargs):
+        fields_input = self.validate_input(kwargs, required=False)
+        cursor = Settings.cursor
+        _fields_format = []
+        for field_key, field_value in fields_input.items():
+            _fields_format.append('{key} = {value}'.format(key = field_key, value = field_value))
+        cursor.execute('DELETE FROM {table_name} WHERE {fields_format} '.format(
+            table_name = self.table_name, 
+            fields_format = '{}'.format(' AND '.join(_fields_format))
+            ))
+        Settings.db.commit()
 
 
+
+
+    def validate_input(self, input_dict, required = True):
+        '''
+        '''
+        result = {}
+        for input_key, input_value in input_dict.items():
+            if input_key not in self.fields:
+                raise ValueError('extra attributes')
+            _input_value = self.fields[input_key].validate(input_value)
+            if isinstance(_input_value,str):
+                result[input_key] = "'" + _input_value + "'"                
+            else: 
+                result[input_key] = str(_input_value)
+        if required:
+            for field_key, field in self.fields.items():
+                if field.required and (field_key not in result):
+                    raise ValueError('not enough attributes')
+        return result
+
+
+        
+class classproperty(object):
+    def __init__(self, fget):
+        self.fget = fget
+
+    def __get__(self, owner, cls):
+        return self.fget(cls)
 
 class Model(metaclass=ModelMeta):
     class Meta:
         table_name = ''
 
-    objects = Manage()
+    # objects = Manage(_fields)
     # todo DoesNotExist
 
+    @classproperty
+    def objects(cls):
+        return Manage(cls._fields, cls._table_name)
+
+
     def __init__(self, *_, **kwargs):
-        for field_name, field in self._fields.items():
-            value = field.validate(kwargs.get(field_name))
-            setattr(self, field_name, value)
+        # for field_name, field in self._fields.items():
+            # value = field.validate(kwargs.get(field_name))
+            # setattr(self, field_name, value)
+        pass
     
     @classmethod
     def create_table(cls):
