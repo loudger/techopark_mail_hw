@@ -27,7 +27,6 @@ class Field:
         if value is None and not self.required:
             return None
         if not isinstance(value, (self.f_type, type(None))):
-            print(value, type(value), self.f_type)
             raise ValueError('input ValueError')
         return self.f_type(value)
 
@@ -46,6 +45,7 @@ class IntField(Field):
         if self.required:
             result.append('NOT')
         result.append('NULL')
+
         return ' '.join(result)
 
 class StringField(Field):
@@ -112,36 +112,114 @@ class Settings:
         cls.cursor = cls.db.cursor()
 
 class Manage:
-    def __init__(self, fields, table_name):
-        self.fields = fields     
-        self.table_name = table_name    
+    def __init__(self):
+        self.model_cls = None
 
-    # def __get__(self, instance, owner):
-    #     print('!!!')
-    #     return self.fields
+    def __get__(self, instance, owner):
+        if self.model_cls is None:
+            self.model_cls = owner
+            self.fields = owner._fields
+            self.table_name = owner._table_name
+        return self
 
-    def create(self, **kwargs):
-        fields_input = self.validate_input(kwargs)
+    def create(self, *args,**kwargs):
+        if len(args) > 0 and len(kwargs) == 0:
+            for block in args:
+                fields_input = self.validate_input(block)
+                cursor = Settings.cursor
+                cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
+                    table_name = self.table_name, 
+                    fields_key = ', '.join(fields_input.keys()),
+                    fields_value = ', '.join(fields_input.values())
+                    ))
+                Settings.db.commit()
+
+        elif len(args) == 0 and len(kwargs) > 0:
+            fields_input = self.validate_input(kwargs)
+            cursor = Settings.cursor
+            cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
+                table_name = self.table_name, 
+                fields_key = ', '.join(fields_input.keys()),
+                fields_value = ', '.join(fields_input.values())
+                ))
+            Settings.db.commit()
+        # return self
+
+    def remove(self, *args,  **kwargs):
         cursor = Settings.cursor
-        cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
-            table_name = self.table_name, 
-            fields_key = ', '.join(fields_input.keys()),
-            fields_value = ', '.join(fields_input.values())
-            ))
-        Settings.db.commit()
+        def remove_line(fields_input):
+            _fields_format = []
+            for field_key, field_value in fields_input.items():
+                _fields_format.append('{key} = {value}'.format(key = field_key, value = field_value))
+            cursor.execute('DELETE FROM {table_name} WHERE {fields_format} '.format(
+                table_name = self.table_name, 
+                fields_format = '{}'.format(' AND '.join(_fields_format))
+                ))
+            Settings.db.commit()
 
-    def remove(self, **kwargs):
-        fields_input = self.validate_input(kwargs, required=False)
-        cursor = Settings.cursor
+        if len(args) > 0 and len(kwargs) == 0:
+            for block in args:
+                fields_input = self.validate_input(block, required=False)
+                remove_line(fields_input)
+
+        elif len(args) == 0 and len(kwargs) > 0:
+            fields_input = self.validate_input(kwargs, required=False)
+            remove_line(fields_input)
+
+        else: ValueError('Error input')
+        # return self
+
+    def update(self, *args ,**kwargs):
+        '''Необходимо после update() вызвать where()
+            Model.objects.update().where()
+        '''
+        if len(args) == 1 and len(kwargs) == 0:
+            fields_input = self.validate_input(args[0], required=False)
+        elif len(args) == 0 and len(kwargs) > 0:
+            fields_input = self.validate_input(kwargs, required=False)
+        else: raise ValueError('input update error')
         _fields_format = []
         for field_key, field_value in fields_input.items():
             _fields_format.append('{key} = {value}'.format(key = field_key, value = field_value))
-        cursor.execute('DELETE FROM {table_name} WHERE {fields_format} '.format(
-            table_name = self.table_name, 
-            fields_format = '{}'.format(' AND '.join(_fields_format))
-            ))
-        Settings.db.commit()
+        self.stmt = 'UPDATE {table_name} SET {fields_set_format}'.format(
+                table_name = self.table_name, 
+                fields_set_format = '{}'.format(' , '.join(_fields_format))
+                )
+        # print(stmt)
+        return self
 
+    def where(self, *args, **kwargs):
+        cursor = Settings.cursor
+        def add_where_str(fields_input):
+            _fields_format = []
+            for field_key, field_value in fields_input.items():
+                _fields_format.append('{key} = {value}'.format(key = field_key, value = field_value))
+            self.stmt += ' {fields_where_format} '.format(
+                fields_where_format = '{}'.format(' AND '.join(_fields_format))
+                )
+        if len(args) == 0 and len(kwargs) == 0:
+            cursor.execute(self.stmt)
+            Settings.db.commit()
+
+        elif len(args) > 0 and len(kwargs) == 0:
+            counter = 0
+            self.stmt += ' WHERE'
+            for block in args:
+                counter += 1 
+                fields_input = self.validate_input(block, required=False)
+                add_where_str(fields_input)
+                if counter != len(args):
+                    self.stmt += 'OR'
+
+        elif len(args) == 0 and len(kwargs) > 0:
+            self.stmt += ' WHERE'
+            fields_input = self.validate_input(kwargs, required=False)
+            add_where_str(fields_input)
+
+        else: raise ValueError('input where error')
+        cursor.execute(self.stmt)
+        Settings.db.commit()
+        del self.stmt
 
 
 
@@ -165,23 +243,25 @@ class Manage:
 
 
         
-class classproperty(object):
-    def __init__(self, fget):
-        self.fget = fget
+# class classproperty(object):
+#     def __init__(self, fget):
+#         self.fget = fget
 
-    def __get__(self, owner, cls):
-        return self.fget(cls)
+#     def __get__(self, owner, cls):
+#         return self.fget(cls)
 
 class Model(metaclass=ModelMeta):
     class Meta:
         table_name = ''
 
-    # objects = Manage(_fields)
+    objects = Manage()
     # todo DoesNotExist
 
-    @classproperty
-    def objects(cls):
-        return Manage(cls._fields, cls._table_name)
+
+    # @classproperty
+    # def objects(cls):
+    #     return Manage(cls._fields, cls._table_name)
+
 
 
     def __init__(self, *_, **kwargs):
@@ -193,7 +273,8 @@ class Model(metaclass=ModelMeta):
     @classmethod
     def create_table(cls):
         cursor = Settings.cursor
-        cursor.execute('CREATE TABLE {table_name} ({fields}) '.format(
+        # cursor.execute
+        print('CREATE TABLE {table_name} ({fields}) '.format(
             table_name = cls._table_name, 
             fields = make_fields_stmt(cls._fields)
             ))
@@ -203,16 +284,6 @@ class Model(metaclass=ModelMeta):
         cursor = Settings.cursor
         cursor.execute('DROP TABLE {table_name}'.format(table_name= cls._table_name))
 
-    @classmethod
-    def update_table(cls):
-        pass
-
-# class Man(User):
-#     sex = StringField()
-
-# User.objects.create(id=1, name='name')
-# User.objects.update(id=1)
-# User.objects.delete(id=1)
 
 # User.objects.filter(id=2).filter(name='petya')
 
