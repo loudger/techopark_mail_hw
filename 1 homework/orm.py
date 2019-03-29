@@ -98,7 +98,8 @@ class ModelMeta(type):
         namespace['_table_name'] = meta.table_name
         return super().__new__(mcs, name, bases, namespace)
 
-class Settings:
+
+class Database:
     db = None
     cursor = None
     @classmethod
@@ -111,6 +112,12 @@ class Settings:
         )
         cls.cursor = cls.db.cursor()
 
+    @classmethod
+    def tables(cls):
+        cls.cursor.execute("SHOW TABLES")
+        tables = cls.cursor.fetchall()
+        return tables
+
 class Manage:
     def __init__(self):
         self.model_cls = None
@@ -122,31 +129,57 @@ class Manage:
             self.table_name = owner._table_name
         return self
 
+    def get(self, *args):
+        cursor = Database.cursor
+        if len(args) == 0:
+            cursor.execute('SELECT * FROM {table_name}'.format(table_name = self.table_name))
+            return cursor.fetchall()
+        else:
+            stmt = []
+            print(args)
+            print(self.fields)
+            for input_field in args:
+                if input_field not in self.fields.items():
+                    stmt.append(input_field)
+                else: 
+                    raise ValueError('input get error')
+            cursor.execute('SELECT {fields} FROM {table_name}'.format(
+                fields = ', '.join(stmt),
+                table_name = self.table_name
+                ))
+            return cursor.fetchall()
+                
+    def describe(self, *args):
+        cursor = Database.cursor
+        if len(args) == 0:
+            cursor.execute('DESCRIBE {table_name}'.format(table_name = self.table_name))
+            return cursor.fetchall()
+
     def create(self, *args,**kwargs):
         if len(args) > 0 and len(kwargs) == 0:
             for block in args:
                 fields_input = self.validate_input(block)
-                cursor = Settings.cursor
+                cursor = Database.cursor
                 cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
                     table_name = self.table_name, 
                     fields_key = ', '.join(fields_input.keys()),
                     fields_value = ', '.join(fields_input.values())
                     ))
-                Settings.db.commit()
+                Database.db.commit()
 
         elif len(args) == 0 and len(kwargs) > 0:
             fields_input = self.validate_input(kwargs)
-            cursor = Settings.cursor
+            cursor = Database.cursor
             cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
                 table_name = self.table_name, 
                 fields_key = ', '.join(fields_input.keys()),
                 fields_value = ', '.join(fields_input.values())
                 ))
-            Settings.db.commit()
+            Database.db.commit()
         # return self
 
     def remove(self, *args,  **kwargs):
-        cursor = Settings.cursor
+        cursor = Database.cursor
         def remove_line(fields_input):
             _fields_format = []
             for field_key, field_value in fields_input.items():
@@ -155,7 +188,7 @@ class Manage:
                 table_name = self.table_name, 
                 fields_format = '{}'.format(' AND '.join(_fields_format))
                 ))
-            Settings.db.commit()
+            Database.db.commit()
 
         if len(args) > 0 and len(kwargs) == 0:
             for block in args:
@@ -189,7 +222,7 @@ class Manage:
         return self
 
     def where(self, *args, **kwargs):
-        cursor = Settings.cursor
+        cursor = Database.cursor
         def add_where_str(fields_input):
             _fields_format = []
             for field_key, field_value in fields_input.items():
@@ -199,7 +232,7 @@ class Manage:
                 )
         if len(args) == 0 and len(kwargs) == 0:
             cursor.execute(self.stmt)
-            Settings.db.commit()
+            Database.db.commit()
 
         elif len(args) > 0 and len(kwargs) == 0:
             counter = 0
@@ -218,8 +251,8 @@ class Manage:
 
         else: raise ValueError('input where error')
         cursor.execute(self.stmt)
-        Settings.db.commit()
-        del self.stmt
+        Database.db.commit()
+        # del self.stmt
 
 
 
@@ -272,20 +305,16 @@ class Model(metaclass=ModelMeta):
     
     @classmethod
     def create_table(cls):
-        cursor = Settings.cursor
-        # cursor.execute
-        print('CREATE TABLE {table_name} ({fields}) '.format(
+        cursor = Database.cursor
+        cursor.execute('CREATE TABLE {table_name} ({fields}) '.format(
             table_name = cls._table_name, 
             fields = make_fields_stmt(cls._fields)
             ))
     
     @classmethod
     def drop_table(cls):
-        cursor = Settings.cursor
+        cursor = Database.cursor
         cursor.execute('DROP TABLE {table_name}'.format(table_name= cls._table_name))
 
 
 # User.objects.filter(id=2).filter(name='petya')
-
-# user.save()
-# user.delete()
