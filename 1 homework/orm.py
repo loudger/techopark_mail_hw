@@ -24,6 +24,8 @@ class Field:
         self.default = default
 
     def validate(self, value):
+        '''Проверяет правильность ввода значения
+        '''
         if value is None and not self.required:
             return None
         if not isinstance(value, (self.f_type, type(None))):
@@ -45,7 +47,6 @@ class IntField(Field):
         if self.required:
             result.append('NOT')
         result.append('NULL')
-
         return ' '.join(result)
 
 class StringField(Field):
@@ -78,6 +79,10 @@ class DataField(Field):
 
 
 class ModelMeta(type):
+    '''Метакласс, недобходим для определения метода __new__, для изменения namespace'а классов (детей Model)
+    Находит все атрибуты наследованные от класса Field и добавляет их в namespace как отдельный словарь _fields
+    Также добавляет _table_name из Meta.
+    '''
     def __new__(mcs, name, bases, namespace):
         if name == 'Model':
             return super().__new__(mcs, name, bases, namespace)
@@ -88,9 +93,9 @@ class ModelMeta(type):
         if not hasattr(meta, 'table_name'):
             raise ValueError('table_name is empty')
             
-        # todo mro Возвращает саписок родит классов
-        # забрать все методы из род классов в нужном порядке!
-        # не понял, неужели не все поля и методы наследуются?
+        # todo mro
+        print(bases)
+        print(bases[0])
 
         fields = {k: v for k, v in namespace.items()
                   if isinstance(v, Field)}
@@ -100,10 +105,14 @@ class ModelMeta(type):
 
 
 class Database:
+    '''Класс для подключения к базе данных и вывода таблиц на экран
+    '''
     db = None
     cursor = None
     @classmethod
     def connection(cls,**kwargs):
+        '''Подключение к базе данных
+        '''
         cls.db = mysql.connect(
             host = kwargs['host'],
             user = kwargs['user'],
@@ -114,6 +123,8 @@ class Database:
 
     @classmethod
     def tables(cls):
+        '''Возвращает все таблицы из выбранной базы данных
+        '''
         cls.cursor.execute("SHOW TABLES")
         tables = cls.cursor.fetchall()
         return tables
@@ -123,6 +134,8 @@ class Manage:
         self.model_cls = None
 
     def __get__(self, instance, owner):
+        '''Принимает из owner _fields и _table_name
+        '''
         if self.model_cls is None:
             self.model_cls = owner
             self.fields = owner._fields
@@ -130,14 +143,14 @@ class Manage:
         return self
 
     def get(self, *args):
+        '''Возвращает заданные строчки из таблицы
+        '''
         cursor = Database.cursor
         if len(args) == 0:
             cursor.execute('SELECT * FROM {table_name}'.format(table_name = self.table_name))
             return cursor.fetchall()
         else:
             stmt = []
-            print(args)
-            print(self.fields)
             for input_field in args:
                 if input_field not in self.fields.items():
                     stmt.append(input_field)
@@ -150,15 +163,19 @@ class Manage:
             return cursor.fetchall()
                 
     def describe(self, *args):
+        '''Возвращает описание полей таблицы
+        '''
         cursor = Database.cursor
         if len(args) == 0:
             cursor.execute('DESCRIBE {table_name}'.format(table_name = self.table_name))
             return cursor.fetchall()
 
     def create(self, *args,**kwargs):
+        '''Создаёт строчку в таблице с заданными значениями
+        '''
         if len(args) > 0 and len(kwargs) == 0:
             for block in args:
-                fields_input = self.validate_input(block)
+                fields_input = self.validate_input(block) #Валидация значений
                 cursor = Database.cursor
                 cursor.execute('INSERT INTO {table_name} ({fields_key}) VALUES ({fields_value}) '.format(
                     table_name = self.table_name, 
@@ -179,6 +196,8 @@ class Manage:
         # return self
 
     def remove(self, *args,  **kwargs):
+        '''Удаляет строчку с заданными значениями из таблицы
+        '''
         cursor = Database.cursor
         def remove_line(fields_input):
             _fields_format = []
@@ -203,8 +222,13 @@ class Manage:
         # return self
 
     def update(self, *args ,**kwargs):
-        '''Необходимо после update() вызвать where()
-            Model.objects.update().where()
+        '''Обновляет строчку в таблице
+        Для коммита необходимо после update() вызвать where()
+        Model.objects.update().where()
+        OR
+        Model.objects.update()
+        ...
+        Model.objects.where()
         '''
         if len(args) == 1 and len(kwargs) == 0:
             fields_input = self.validate_input(args[0], required=False)
@@ -218,46 +242,47 @@ class Manage:
                 table_name = self.table_name, 
                 fields_set_format = '{}'.format(' , '.join(_fields_format))
                 )
-        # print(stmt)
         return self
 
     def where(self, *args, **kwargs):
         cursor = Database.cursor
-        def add_where_str(fields_input):
+        tmp_stmt = self.stmt
+        def add_where_str(fields_input, stmt):
             _fields_format = []
             for field_key, field_value in fields_input.items():
                 _fields_format.append('{key} = {value}'.format(key = field_key, value = field_value))
-            self.stmt += ' {fields_where_format} '.format(
+            stmt += ' {fields_where_format} '.format(
                 fields_where_format = '{}'.format(' AND '.join(_fields_format))
                 )
+            return stmt
         if len(args) == 0 and len(kwargs) == 0:
-            cursor.execute(self.stmt)
-            Database.db.commit()
+            pass
 
         elif len(args) > 0 and len(kwargs) == 0:
             counter = 0
-            self.stmt += ' WHERE'
+            tmp_stmt += ' WHERE'
             for block in args:
                 counter += 1 
                 fields_input = self.validate_input(block, required=False)
-                add_where_str(fields_input)
+                tmp_stmt = add_where_str(fields_input, tmp_stmt)
                 if counter != len(args):
-                    self.stmt += 'OR'
+                    tmp_stmt += 'OR'
 
         elif len(args) == 0 and len(kwargs) > 0:
-            self.stmt += ' WHERE'
+            tmp_stmt += ' WHERE'
             fields_input = self.validate_input(kwargs, required=False)
-            add_where_str(fields_input)
+            tmp_stmt = add_where_str(fields_input, tmp_stmt)
 
         else: raise ValueError('input where error')
-        cursor.execute(self.stmt)
+        cursor.execute(tmp_stmt)
         Database.db.commit()
-        # del self.stmt
-
 
 
     def validate_input(self, input_dict, required = True):
-        '''
+        '''Валидация значений
+        Если required = True, значит важно чтобы имена полей были назначены верно(также их значения)
+        и все поля с атрибутами required были заданы.
+        Если False, то он просто проверяет валидность имена полей и их значений.
         '''
         result = {}
         for input_key, input_value in input_dict.items():
@@ -275,7 +300,6 @@ class Manage:
         return result
 
 
-        
 # class classproperty(object):
 #     def __init__(self, fget):
 #         self.fget = fget
@@ -287,14 +311,8 @@ class Model(metaclass=ModelMeta):
     class Meta:
         table_name = ''
 
-    objects = Manage()
+    objects = Manage() # содержит методы для работы с таблицей
     # todo DoesNotExist
-
-
-    # @classproperty
-    # def objects(cls):
-    #     return Manage(cls._fields, cls._table_name)
-
 
 
     def __init__(self, *_, **kwargs):
@@ -305,6 +323,8 @@ class Model(metaclass=ModelMeta):
     
     @classmethod
     def create_table(cls):
+        '''Создаёт таблицу в базе данных
+        '''
         cursor = Database.cursor
         cursor.execute('CREATE TABLE {table_name} ({fields}) '.format(
             table_name = cls._table_name, 
@@ -313,6 +333,8 @@ class Model(metaclass=ModelMeta):
     
     @classmethod
     def drop_table(cls):
+        '''Удаляет таблицу из базы данных
+        '''
         cursor = Database.cursor
         cursor.execute('DROP TABLE {table_name}'.format(table_name= cls._table_name))
 
