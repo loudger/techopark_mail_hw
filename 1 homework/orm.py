@@ -38,7 +38,7 @@ class IntField(Field):
         super().__init__(int, required, default)
 
     def return_mysql_format(self):
-        ''' Используется для вывода строчки например 'id DEFAULT 5 NOT NULL'
+        ''' Используется для вывода строчки например 'id INT DEFAULT 5 NOT NULL'
         '''
         result = ['INT']
         if self.default != None:
@@ -94,12 +94,18 @@ class ModelMeta(type):
             raise ValueError('table_name is empty')
             
         # todo mro
-        print(bases)
-        print(bases[0])
+        namespace['_fields'] = {}
+        if bases[0] != Model:
+            for base in bases:
+                for key, field in base._fields.items():
+                    namespace['_fields'][key] = field
 
         fields = {k: v for k, v in namespace.items()
                   if isinstance(v, Field)}
-        namespace['_fields'] = fields
+        namespace['_fields'].update(fields) 
+        # fields = {k: v for k, v in namespace.items()
+        #           if isinstance(v, Field)}
+        # namespace['_fields'] = fields
         namespace['_table_name'] = meta.table_name
         return super().__new__(mcs, name, bases, namespace)
 
@@ -291,7 +297,7 @@ class Manage:
             _input_value = self.fields[input_key].validate(input_value)
             if isinstance(_input_value,str):
                 result[input_key] = "'" + _input_value + "'"                
-            else: 
+            else:
                 result[input_key] = str(_input_value)
         if required:
             for field_key, field in self.fields.items():
@@ -312,8 +318,8 @@ class Model(metaclass=ModelMeta):
         table_name = ''
 
     objects = Manage() # содержит методы для работы с таблицей
-    # todo DoesNotExist
 
+    # todo DoesNotExist
 
     def __init__(self, *_, **kwargs):
         # for field_name, field in self._fields.items():
@@ -330,7 +336,7 @@ class Model(metaclass=ModelMeta):
             table_name = cls._table_name, 
             fields = make_fields_stmt(cls._fields)
             ))
-    
+
     @classmethod
     def drop_table(cls):
         '''Удаляет таблицу из базы данных

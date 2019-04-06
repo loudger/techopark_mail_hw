@@ -24,6 +24,8 @@ class Man(Users):
 	sex = StringField(length=5, required= False)
 	class Meta:
 		table_name = 'Man'
+
+print(Man._fields)
 # Users.create_table()
 # Users.drop_table()
 
